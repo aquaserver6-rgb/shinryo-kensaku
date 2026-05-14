@@ -570,6 +570,7 @@ async function doSearch() {
         <div class="result-full" id="full-${idx}" style="display:none;font-size:13px;line-height:1.9;color:#444;white-space:pre-wrap;word-break:break-all">${highlight(r.text, words, 99999)}</div>
         <div class="result-actions">
           <button class="btn btn-outline btn-sm" onclick="toggleFullText(${idx}, this)">📖 全文を見る</button>
+          <button class="btn btn-outline btn-sm" onclick="openCompare(${r.doc_id})">↔ 比較する</button>
           <button class="btn btn-outline btn-sm" onclick="addBookmark(${r.doc_id},${r.page_num})">🔖 ブックマーク</button>
         </div>
       </div>
@@ -585,6 +586,42 @@ function toggleFullText(idx, btn) {
   snippet.style.display = isOpen ? '' : 'none';
   full.style.display    = isOpen ? 'none' : '';
   btn.textContent = isOpen ? '📖 全文を見る' : '📕 折りたたむ';
+}
+
+// ─── 検索結果から比較タブへ ───────────────────────────────
+function openCompare(docId) {
+  const doc = allDocs.find(d => String(d.id) === String(docId));
+  if (!doc) { toast('資料情報が見つかりません'); return; }
+
+  // 別の年度で最もラベルが近い資料を探す
+  const otherYearDocs = allDocs.filter(d => d.year !== doc.year);
+  let partner = null;
+  if (otherYearDocs.length > 0) {
+    // ラベルの共通部分が最も長いものを選ぶ
+    const score = d => {
+      const a = doc.label, b = d.label;
+      let match = 0;
+      for (let i = 0; i < Math.min(a.length, b.length); i++) {
+        if (a[i] === b[i]) match++; else break;
+      }
+      return match;
+    };
+    partner = otherYearDocs.reduce((best, d) => score(d) >= score(best) ? d : best, otherYearDocs[0]);
+  }
+
+  // 比較タブのセレクトをセット
+  const selA = document.getElementById('doc-a');
+  const selB = document.getElementById('doc-b');
+  selA.value = String(doc.id);
+  if (partner) selB.value = String(partner.id);
+
+  // キーワードをコピー
+  const keyword = document.getElementById('q').value.trim();
+  if (keyword) document.getElementById('cq').value = keyword;
+
+  // 比較タブへ移動して自動実行
+  switchTab('compare');
+  if (selA.value && selB.value) doCompare();
 }
 
 // ─── 比較 ──────────────────────────────────────────────────
