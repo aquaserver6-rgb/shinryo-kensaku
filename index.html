@@ -846,7 +846,7 @@ function similarity(a, b) {
 }
 
 // 類似度が最も高いペアを貪欲法でマッチング（スコア付き）
-const DIFF_THRESHOLD = 0.25; // これ以上の類似度のペアのみ差分表示
+const DIFF_THRESHOLD = 0.08; // これ以上の類似度のペアのみ差分表示
 
 function matchPairs(left, right) {
   if (!left.length || !right.length) {
