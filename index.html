@@ -824,9 +824,16 @@ function renderDiff(oldText, newText) {
   let oldHtml = '', newHtml = '';
   for (const op of ops) {
     const t = esc(op.v);
-    if (op.t === '=')      { oldHtml += t; newHtml += t; }
-    else if (op.t === '-') { oldHtml += `<mark class="diff-del">${t}</mark>`; }
-    else                   { newHtml += `<mark class="diff-ins">${t}</mark>`; }
+    if (op.t === '=') {
+      // 共通部分は薄いグレーで表示（変化点を目立たせる）
+      const muted = `<span style="color:#aaa">${t}</span> `;
+      oldHtml += muted;
+      newHtml += muted;
+    } else if (op.t === '-') {
+      oldHtml += `<mark class="diff-del">${t}</mark> `;
+    } else {
+      newHtml += `<mark class="diff-ins">${t}</mark> `;
+    }
   }
   return { oldHtml, newHtml };
 }
