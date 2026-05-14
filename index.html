@@ -126,11 +126,12 @@ mark.diff-ins { background:#e8fde8; color:#1e8449; border-radius:3px; padding:0 
 .diff-legend span { display:flex; align-items:center; gap:4px; }
 .result-actions { margin-top:10px; }
 
-.compare-col { background:var(--card); border-radius:var(--r); box-shadow:var(--shadow); padding:12px 14px; margin-bottom:10px; }
-.compare-col-title { font-size:12px; font-weight:bold; color:var(--primary); padding-bottom:8px; margin-bottom:10px; border-bottom:1px solid var(--border); }
-.compare-hit { background:#f8f9fa; border-radius:6px; padding:10px; margin-bottom:8px; font-size:13px; line-height:1.9; white-space:pre-wrap; word-break:break-all; }
+.compare-header { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+.compare-col-title { background:var(--card); border-radius:var(--r); box-shadow:var(--shadow); padding:10px 14px; font-size:12px; font-weight:bold; color:var(--primary); text-align:center; }
+.compare-pair { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+.compare-hit { background:#f8f9fa; border-radius:6px; padding:10px; font-size:13px; line-height:1.9; white-space:pre-wrap; word-break:break-all; }
 .compare-hit .pg { font-size:11px; color:var(--muted); margin-bottom:4px; }
-@media(min-width:700px){ .compare-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } .compare-grid .compare-col { margin-bottom:0; } }
+.compare-hit.empty-side { background:transparent; border:1.5px dashed var(--border); color:var(--muted); font-size:12px; display:flex; align-items:center; justify-content:center; min-height:60px; }
 
 .profile-section { margin-bottom:18px; }
 .profile-section-title { font-size:13px; font-weight:bold; color:var(--primary); margin-bottom:10px; display:flex; align-items:center; gap:6px; }
@@ -818,20 +819,44 @@ function renderDiff(oldText, newText) {
 
 function renderCompareResults(left, right, labels, useDiff) {
   const la = labels[0], lb = labels[1];
-  const renderHits = (hits, htmlArr) => hits.length
-    ? hits.map((h, i) => `<div class="compare-hit"><div class="pg">p.${h.page_num}</div>${htmlArr ? htmlArr[i] : h.snippet}</div>`).join('')
-    : '<div class="empty">該当なし</div>';
+  const count = Math.max(left.length, right.length);
 
-  let leftHtmlArr = null, rightHtmlArr = null;
-  if (useDiff && left.length && right.length) {
-    const pairs = Math.min(left.length, right.length);
-    leftHtmlArr  = left.map((h, i)  => i < pairs ? renderDiff(h.rawText, right[i].rawText).oldHtml : esc(h.rawText));
-    rightHtmlArr = right.map((h, i) => i < pairs ? renderDiff(left[i].rawText, h.rawText).newHtml : esc(h.rawText));
+  if (count === 0) {
+    document.getElementById('compare-results').innerHTML = '<div class="empty">該当なし</div>';
+    return;
   }
 
+  // 差分HTML配列を事前計算
+  let leftHtmlArr = left.map(h => h.snippet);
+  let rightHtmlArr = right.map(h => h.snippet);
+  if (useDiff) {
+    const pairs = Math.min(left.length, right.length);
+    for (let i = 0; i < pairs; i++) {
+      const d = renderDiff(left[i].rawText, right[i].rawText);
+      leftHtmlArr[i]  = d.oldHtml;
+      rightHtmlArr[i] = d.newHtml;
+    }
+  }
+
+  // ペア行を生成
+  const rows = Array.from({length: count}, (_, i) => {
+    const l = left[i];
+    const r = right[i];
+    const lCell = l
+      ? `<div class="compare-hit"><div class="pg">p.${l.page_num}</div>${leftHtmlArr[i]}</div>`
+      : `<div class="compare-hit empty-side">（該当なし）</div>`;
+    const rCell = r
+      ? `<div class="compare-hit"><div class="pg">p.${r.page_num}</div>${rightHtmlArr[i]}</div>`
+      : `<div class="compare-hit empty-side">（該当なし）</div>`;
+    return `<div class="compare-pair">${lCell}${rCell}</div>`;
+  }).join('');
+
   document.getElementById('compare-results').innerHTML = `
-    <div class="compare-col"><div class="compare-col-title">◀ ${esc(la)}</div>${renderHits(left, leftHtmlArr)}</div>
-    <div class="compare-col"><div class="compare-col-title">▶ ${esc(lb)}</div>${renderHits(right, rightHtmlArr)}</div>
+    <div class="compare-header">
+      <div class="compare-col-title">◀ ${esc(la)}</div>
+      <div class="compare-col-title">▶ ${esc(lb)}</div>
+    </div>
+    ${rows}
   `;
 }
 
