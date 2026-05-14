@@ -817,36 +817,80 @@ function renderDiff(oldText, newText) {
   return { oldHtml, newHtml };
 }
 
+// テキストを単語の集合に変換（類似度計算用）
+function textToWords(text) {
+  return new Set(text.replace(/\s+/g, '').match(/.{1,2}/g) || []);
+}
+
+// Jaccard類似度（0〜1）
+function similarity(a, b) {
+  const wa = textToWords(a), wb = textToWords(b);
+  let inter = 0;
+  for (const w of wa) if (wb.has(w)) inter++;
+  const union = wa.size + wb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+// 類似度が最も高いペアを貪欲法でマッチング
+function matchPairs(left, right) {
+  if (!left.length || !right.length) {
+    return [
+      ...left.map(l => ({ l, r: null })),
+      ...right.map(r => ({ l: null, r })),
+    ];
+  }
+
+  const usedR = new Set();
+  const pairs = [];
+
+  for (const l of left) {
+    let bestIdx = -1, bestScore = -1;
+    for (let i = 0; i < right.length; i++) {
+      if (usedR.has(i)) continue;
+      const s = similarity(l.rawText, right[i].rawText);
+      if (s > bestScore) { bestScore = s; bestIdx = i; }
+    }
+    if (bestIdx >= 0 && bestScore > 0.05) {
+      pairs.push({ l, r: right[bestIdx] });
+      usedR.add(bestIdx);
+    } else {
+      pairs.push({ l, r: null });
+    }
+  }
+
+  // 右側で未マッチのものを末尾に追加
+  right.forEach((r, i) => {
+    if (!usedR.has(i)) pairs.push({ l: null, r });
+  });
+
+  return pairs;
+}
+
 function renderCompareResults(left, right, labels, useDiff) {
   const la = labels[0], lb = labels[1];
-  const count = Math.max(left.length, right.length);
 
-  if (count === 0) {
+  if (!left.length && !right.length) {
     document.getElementById('compare-results').innerHTML = '<div class="empty">該当なし</div>';
     return;
   }
 
-  // 差分HTML配列を事前計算
-  let leftHtmlArr = left.map(h => h.snippet);
-  let rightHtmlArr = right.map(h => h.snippet);
-  if (useDiff) {
-    const pairs = Math.min(left.length, right.length);
-    for (let i = 0; i < pairs; i++) {
-      const d = renderDiff(left[i].rawText, right[i].rawText);
-      leftHtmlArr[i]  = d.oldHtml;
-      rightHtmlArr[i] = d.newHtml;
-    }
-  }
+  // 類似度ベースでペアリング
+  const pairs = matchPairs(left, right);
 
-  // ペア行を生成
-  const rows = Array.from({length: count}, (_, i) => {
-    const l = left[i];
-    const r = right[i];
+  // 差分HTMLを計算
+  const rows = pairs.map(({ l, r }) => {
+    let lHtml = l ? l.snippet : '';
+    let rHtml = r ? r.snippet : '';
+    if (useDiff && l && r) {
+      const d = renderDiff(l.rawText, r.rawText);
+      lHtml = d.oldHtml;
+      rHtml = d.newHtml;
+    }
     const lCell = l
-      ? `<div class="compare-hit"><div class="pg">p.${l.page_num}</div>${leftHtmlArr[i]}</div>`
+      ? `<div class="compare-hit"><div class="pg">p.${l.page_num}</div>${lHtml}</div>`
       : `<div class="compare-hit empty-side">（該当なし）</div>`;
     const rCell = r
-      ? `<div class="compare-hit"><div class="pg">p.${r.page_num}</div>${rightHtmlArr[i]}</div>`
+      ? `<div class="compare-hit"><div class="pg">p.${r.page_num}</div>${rHtml}</div>`
       : `<div class="compare-hit empty-side">（該当なし）</div>`;
     return `<div class="compare-pair">${lCell}${rCell}</div>`;
   }).join('');
