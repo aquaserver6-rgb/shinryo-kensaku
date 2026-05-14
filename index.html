@@ -782,23 +782,37 @@ let lastCompareLabels = ['', ''];
 let diffModeOn = false;
 
 function splitChunks(text) {
-  return text.replace(/([。！？])/g, '$1\n').split('\n').map(s => s.trim()).filter(Boolean);
+  return text.replace(/([。！？])/g, '$1\n')
+             .split('\n')
+             .map(s => s.trim())
+             .filter(s => s.length > 2); // 短すぎる断片は除外
+}
+
+// 空白・全角スペースを除去して比較用に正規化
+function normalizeChunk(s) {
+  return s.replace(/[\s　​]/g, '');
 }
 
 function lcsDiff(a, b) {
-  const MAX = 80;
+  const MAX = 150;
   const oa = a.slice(0, MAX), ob = b.slice(0, MAX);
+  const na = oa.map(normalizeChunk);  // 比較は正規化後
+  const nb = ob.map(normalizeChunk);
   const m = oa.length, n = ob.length;
   const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
   for (let i = 1; i <= m; i++)
     for (let j = 1; j <= n; j++)
-      dp[i][j] = oa[i-1] === ob[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+      dp[i][j] = na[i-1] === nb[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
   const ops = [];
   let i = m, j = n;
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && oa[i-1] === ob[j-1]) { ops.unshift({t:'=', v:oa[i-1]}); i--; j--; }
-    else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) { ops.unshift({t:'+', v:ob[j-1]}); j--; }
-    else { ops.unshift({t:'-', v:oa[i-1]}); i--; }
+    if (i > 0 && j > 0 && na[i-1] === nb[j-1]) {
+      ops.unshift({t:'=', v:oa[i-1]}); i--; j--; // 表示は元のテキスト
+    } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+      ops.unshift({t:'+', v:ob[j-1]}); j--;
+    } else {
+      ops.unshift({t:'-', v:oa[i-1]}); i--;
+    }
   }
   return ops;
 }
