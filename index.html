@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="診療報酬検索">
+<meta name="theme-color" content="#1a6ab1">
+<title>診療報酬改定 検索ツール</title>
+
+<!-- Supabase JS クライアント -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f0f4f8; --card: #fff;
+  --primary: #1a6ab1; --primary-light: #e8f0fb; --primary-dark: #155a96;
+  --accent: #e74c3c; --green: #27ae60; --green-light: #eafaf1;
+  --text: #2c3e50; --muted: #7f8c8d; --border: #dde3eb; --mark: #fff3b0;
+  --r: 10px; --shadow: 0 2px 8px rgba(0,0,0,.09);
+  --tab-h: 52px; --header-h: 52px;
+}
+html, body { height: 100%; }
+body { font-family:"Meiryo","Hiragino Kaku Gothic Pro","Noto Sans JP",sans-serif; background:var(--bg); color:var(--text); font-size:14px; -webkit-overflow-scrolling:touch; }
+
+/* ── 設定バナー（未設定時に表示） ── */
+#config-banner {
+  background: #fff3cd; border-bottom: 1px solid #ffc107;
+  padding: 10px 16px; font-size: 13px; text-align: center;
+  display: none;
+}
+#config-banner a { color: var(--primary); font-weight: bold; cursor: pointer; }
+
+header {
+  position:sticky; top:0; z-index:100; height:var(--header-h);
+  background:var(--primary); color:#fff;
+  display:flex; align-items:center; justify-content:space-between; padding:0 16px;
+  box-shadow:0 2px 6px rgba(0,0,0,.25);
+}
+header h1 { font-size:15px; font-weight:bold; }
+.profile-badge { font-size:11px; background:rgba(255,255,255,.2); border-radius:20px; padding:5px 12px; cursor:pointer; white-space:nowrap; }
+.profile-badge.active { background:var(--green); }
+
+.tabs {
+  position:fixed; bottom:0; left:0; right:0; z-index:100; height:var(--tab-h);
+  background:#fff; display:flex; border-top:1px solid var(--border);
+  box-shadow:0 -2px 8px rgba(0,0,0,.08);
+}
+.tab-btn {
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  border:none; background:none; font-size:10px; color:var(--muted); cursor:pointer; padding:6px 2px;
+  -webkit-tap-highlight-color:transparent;
+}
+.tab-btn .icon { font-size:20px; line-height:1; }
+.tab-btn.active { color:var(--primary); font-weight:bold; }
+
+.content-wrap { padding-top:4px; padding-bottom:calc(var(--tab-h) + 8px); }
+.tab-panel { display:none; padding:12px; }
+.tab-panel.active { display:block; }
+
+.card { background:var(--card); border-radius:var(--r); box-shadow:var(--shadow); padding:14px; margin-bottom:12px; }
+.card-title { font-size:13px; font-weight:bold; color:var(--primary); margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--primary-light); }
+
+input[type=text], input[type=url], input[type=password], select {
+  border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:16px;
+  outline:none; font-family:inherit; width:100%; background:#fff; -webkit-appearance:none;
+}
+input:focus, select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-light); }
+.form-row { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+.form-row label { font-size:12px; color:var(--muted); font-weight:bold; }
+.hint { font-size:11px; color:var(--muted); margin-top:3px; line-height:1.5; }
+
+.btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:11px 20px; border-radius:8px; border:none; cursor:pointer;
+  font-size:14px; font-weight:bold; font-family:inherit;
+  -webkit-tap-highlight-color:transparent; transition:.15s; white-space:nowrap;
+}
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-primary:active { background:var(--primary-dark); }
+.btn-success { background:var(--green); color:#fff; }
+.btn-danger  { background:#fff; color:var(--accent); border:1px solid var(--accent); }
+.btn-outline { background:#fff; color:var(--primary); border:1.5px solid var(--primary); }
+.btn-block { width:100%; }
+.btn-sm { padding:7px 14px; font-size:12px; }
+
+.search-bar { display:flex; gap:8px; }
+.search-bar input { flex:1; }
+.search-bar .btn { flex-shrink:0; padding:11px 16px; }
+
+.doc-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.doc-chip {
+  padding:6px 12px; border-radius:20px; font-size:12px;
+  border:1.5px solid var(--border); background:#fff; cursor:pointer;
+  -webkit-tap-highlight-color:transparent; transition:.15s; user-select:none;
+}
+.doc-chip.on { border-color:var(--primary); background:var(--primary-light); color:var(--primary); font-weight:bold; }
+
+.filter-toggle {
+  display:flex; align-items:center; gap:10px; margin-top:10px; padding:10px 12px;
+  border-radius:8px; border:1.5px solid var(--border); cursor:pointer; background:#fff;
+  -webkit-tap-highlight-color:transparent; user-select:none; transition:.15s;
+}
+.filter-toggle.on { border-color:var(--green); background:var(--green-light); color:var(--green); }
+.toggle-sw { width:38px; height:22px; border-radius:11px; background:var(--border); position:relative; flex-shrink:0; transition:.2s; }
+.filter-toggle.on .toggle-sw { background:var(--green); }
+.toggle-sw::after { content:''; position:absolute; width:16px; height:16px; border-radius:50%; background:#fff; top:3px; left:3px; transition:.2s; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+.filter-toggle.on .toggle-sw::after { left:19px; }
+.filter-label { font-size:13px; font-weight:bold; flex:1; }
+.filter-sub { font-size:11px; color:var(--muted); }
+.filter-toggle.on .filter-sub { color:var(--green); }
+
+.result-count { font-size:12px; color:var(--muted); margin-bottom:8px; padding:0 2px; }
+.result-item { background:var(--card); border-radius:var(--r); box-shadow:var(--shadow); padding:12px 14px; margin-bottom:10px; }
+.result-header { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:8px; }
+.badge { display:inline-block; padding:3px 8px; border-radius:12px; font-size:11px; font-weight:bold; }
+.badge-year { background:var(--primary); color:#fff; }
+.badge-page { background:#eaf0fb; color:var(--primary); }
+.result-label { font-weight:bold; font-size:13px; width:100%; }
+.result-snippet { font-size:13px; line-height:1.9; color:#444; white-space:pre-wrap; word-break:break-all; }
+mark { background:var(--mark); border-radius:3px; padding:0 2px; }
+.result-actions { margin-top:10px; }
+
+.compare-col { background:var(--card); border-radius:var(--r); box-shadow:var(--shadow); padding:12px 14px; margin-bottom:10px; }
+.compare-col-title { font-size:12px; font-weight:bold; color:var(--primary); padding-bottom:8px; margin-bottom:10px; border-bottom:1px solid var(--border); }
+.compare-hit { background:#f8f9fa; border-radius:6px; padding:10px; margin-bottom:8px; font-size:13px; line-height:1.9; white-space:pre-wrap; word-break:break-all; }
+.compare-hit .pg { font-size:11px; color:var(--muted); margin-bottom:4px; }
+@media(min-width:700px){ .compare-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } .compare-grid .compare-col { margin-bottom:0; } }
+
+.profile-section { margin-bottom:18px; }
+.profile-section-title { font-size:13px; font-weight:bold; color:var(--primary); margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+.profile-section-title::before { content:''; width:3px; height:14px; background:var(--primary); border-radius:2px; display:inline-block; }
+.chip-grid { display:flex; flex-wrap:wrap; gap:8px; }
+.chip { padding:8px 14px; border-radius:20px; border:1.5px solid var(--border); background:#fff; font-size:13px; cursor:pointer; -webkit-tap-highlight-color:transparent; transition:.15s; user-select:none; }
+.chip.on { border-color:var(--primary); background:var(--primary-light); color:var(--primary); font-weight:bold; }
+
+.doc-item { background:var(--card); border-radius:var(--r); box-shadow:var(--shadow); padding:12px 14px; margin-bottom:8px; display:flex; align-items:flex-start; gap:10px; }
+.doc-info { flex:1; min-width:0; }
+.doc-name { font-weight:bold; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.doc-meta { font-size:11px; color:var(--muted); margin-top:3px; }
+
+.bm-item { background:var(--card); border-radius:var(--r); box-shadow:var(--shadow); padding:12px 14px; margin-bottom:8px; }
+.bm-header { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+
+.spinner { display:none; width:20px; height:20px; border:3px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+#toast { position:fixed; bottom:calc(var(--tab-h)+12px); left:50%; transform:translateX(-50%); background:#2c3e50; color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; white-space:nowrap; display:none; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.25); }
+
+.empty { text-align:center; color:var(--muted); padding:32px 16px; font-size:13px; line-height:1.8; }
+
+@media(min-width:700px){
+  .tab-panel { padding:16px; max-width:900px; margin:0 auto; }
+  input[type=text], input[type=url], input[type=password] { font-size:14px; }
+}
+</style>
+</head>
+<body>
+
+<!-- 未設定バナー -->
+<div id="config-banner">
+  ⚠ Supabase の接続設定が必要です。<a onclick="switchTab('config')">「接続設定」タブ</a>から設定してください。
+</div>
+
+<header>
+  <h1>🏥 診療報酬改定 検索</h1>
+  <div class="profile-badge" id="profile-badge-btn" onclick="switchTab('profile')">
+    ⚙ <span id="profile-count-header">未設定</span>
+  </div>
+</header>
+
+<div class="content-wrap">
+
+  <!-- ===== 検索 ===== -->
+  <div id="tab-search" class="tab-panel active">
+    <div class="card">
+      <div class="search-bar">
+        <input id="q" type="search" inputmode="search" placeholder="キーワード（スペースでAND）" onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn btn-primary" onclick="doSearch()">
+          <span class="spinner" id="search-spinner"></span>
+          <span id="search-btn-text">検索</span>
+        </button>
+      </div>
+      <div id="doc-chips" class="doc-chips"></div>
+      <div class="filter-toggle" id="profile-toggle" onclick="toggleProfileFilter()">
+        <div class="toggle-sw"></div>
+        <div>
+          <div class="filter-label">自院関連のみ表示</div>
+          <div class="filter-sub" id="profile-toggle-sub">病院プロフィール未設定</div>
+        </div>
+      </div>
+    </div>
+    <div id="search-results"></div>
+  </div>
+
+  <!-- ===== 年度比較 ===== -->
+  <div id="tab-compare" class="tab-panel">
+    <div class="card">
+      <div class="form-row"><label>比較キーワード</label><input id="cq" type="search" placeholder="例: 入院基本料"></div>
+      <div class="form-row"><label>◀ 左の資料</label><select id="doc-a"><option value="">選択してください</option></select></div>
+      <div class="form-row"><label>右の資料 ▶</label><select id="doc-b"><option value="">選択してください</option></select></div>
+      <div class="filter-toggle" id="compare-profile-toggle" onclick="toggleCompareProfileFilter()">
+        <div class="toggle-sw"></div>
+        <div><div class="filter-label">自院関連のみ</div><div class="filter-sub" id="compare-toggle-sub">病院プロフィール未設定</div></div>
+      </div>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="doCompare()">
+        <span class="spinner" id="compare-spinner"></span><span>比較する</span>
+      </button>
+    </div>
+    <div id="compare-results" class="compare-grid"></div>
+  </div>
+
+  <!-- ===== 資料一覧 ===== -->
+  <div id="tab-docs" class="tab-panel">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.7">
+      PDFの取り込みは自宅PCで <code>2_upload_pdf.py</code> を使って行います。ここでは取り込み済み資料の確認・削除ができます。
+    </p>
+    <div id="doc-list"></div>
+  </div>
+
+  <!-- ===== ブックマーク ===== -->
+  <div id="tab-bookmarks" class="tab-panel">
+    <div id="bm-list"></div>
+  </div>
+
+  <!-- ===== 病院プロフィール ===== -->
+  <div id="tab-profile" class="tab-panel">
+    <div class="card">
+      <div class="card-title">⚙ 自院の施設条件を選択</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.7">
+        選択内容はSupabaseに保存され、同じURLを使う全員で共有されます。
+      </p>
+      <div id="profile-form"></div>
+      <div style="margin-top:18px;display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-success btn-block" onclick="saveProfile()">✓ 保存する（全員に反映）</button>
+        <button class="btn btn-outline btn-block btn-sm" onclick="clearProfile()">全て解除</button>
+        <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:4px" id="profile-summary"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 接続設定 ===== -->
+  <div id="tab-config" class="tab-panel">
+    <div class="card">
+      <div class="card-title">🔗 Supabase 接続設定</div>
+      <div class="form-row">
+        <label>Project URL</label>
+        <input id="cfg-url" type="url" placeholder="https://xxxx.supabase.co">
+        <div class="hint">Supabase ダッシュボード → Settings → API → Project URL</div>
+      </div>
+      <div class="form-row">
+        <label>anon / public キー</label>
+        <input id="cfg-key" type="password" placeholder="eyJ...">
+        <div class="hint">同じく API → Project API Keys → anon public</div>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="saveConfig()">保存して接続</button>
+      <p style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6">
+        ※ このキーはブラウザのlocalStorageに保存されます。共有PCでは利用後に削除してください。<br>
+        ※ anon キーはSupabaseのRLSポリシーで制御されます。service_role キーは絶対に入力しないでください。
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<nav class="tabs">
+  <button class="tab-btn active" onclick="switchTab('search')"><span class="icon">🔍</span><span>検索</span></button>
+  <button class="tab-btn" onclick="switchTab('compare')"><span class="icon">↔</span><span>比較</span></button>
+  <button class="tab-btn" onclick="switchTab('docs')"><span class="icon">📂</span><span>資料</span></button>
+  <button class="tab-btn" onclick="switchTab('bookmarks')"><span class="icon">🔖</span><span>ブックマーク</span></button>
+  <button class="tab-btn" onclick="switchTab('profile')"><span class="icon">⚙</span><span>病院設定</span></button>
+  <button class="tab-btn" onclick="switchTab('config')"><span class="icon">🔗</span><span>接続設定</span></button>
+</nav>
+
+<div id="toast"></div>
+
+<script>
+// ─── Supabase クライアント ──────────────────────────────────
+let sb = null;
+
+function initSupabase(url, key) {
+  if (!url || !key) return false;
+  try {
+    sb = supabase.createClient(url, key);
+    return true;
+  } catch { return false; }
+}
+
+function loadConfig() {
+  const url = localStorage.getItem('sb_url') || '';
+  const key = localStorage.getItem('sb_key') || '';
+  if (url && key) {
+    document.getElementById('cfg-url').value = url;
+    document.getElementById('cfg-key').value = key;
+    return initSupabase(url, key);
+  }
+  return false;
+}
+
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  if (!url || !key) { toast('URL とキーを入力してください'); return; }
+  localStorage.setItem('sb_url', url);
+  localStorage.setItem('sb_key', key);
+  if (initSupabase(url, key)) {
+    toast('接続設定を保存しました');
+    document.getElementById('config-banner').style.display = 'none';
+    init();
+  } else {
+    toast('接続に失敗しました。URL/キーを確認してください', 3500);
+  }
+}
+
+// ─── プロフィール定義 ─────────────────────────────────────
+const PROFILE_MAP = {
+  "施設区分": {
+    "特定機能病院": ["特定機能病院"],
+    "地域医療支援病院": ["地域医療支援病院"],
+    "DPC対象病院": ["DPC","診断群分類","包括評価"],
+    "在宅療養支援病院": ["在宅療養支援病院"],
+    "臨床研修病院": ["臨床研修","研修医"],
+  },
+  "病床規模": {
+    "〜99床": ["小規模","診療所"],
+    "100〜199床": ["100床以上","100床未満"],
+    "200〜499床": ["200床以上","200床未満","499床以下"],
+    "500床以上": ["500床以上","大規模病院"],
+  },
+  "入院基本料": {
+    "急性期一般入院料": ["急性期一般入院","急性期一般"],
+    "地域一般入院料": ["地域一般入院"],
+    "療養病棟入院基本料": ["療養病棟","療養病床"],
+    "回復期リハビリ病棟": ["回復期リハビリ","回復期リハビリテーション病棟"],
+    "地域包括ケア病棟": ["地域包括ケア病棟","地域包括ケア入院"],
+    "緩和ケア病棟": ["緩和ケア病棟"],
+    "精神科病棟": ["精神病棟","精神科入院","精神科急性期"],
+    "特殊疾患病棟": ["特殊疾患病棟"],
+  },
+  "救急・機能": {
+    "救急指定（二次）": ["救急医療管理加算","救急搬送","二次救急","救急告示"],
+    "救命救急センター（三次）": ["救命救急センター","三次救急","救命救急入院料"],
+    "総合入院体制加算": ["総合入院体制加算"],
+    "急性期充実体制加算": ["急性期充実体制加算"],
+  },
+  "診療科・機能": {
+    "内科・消化器": ["消化器内科","消化器","内視鏡"],
+    "循環器科": ["循環器","心臓カテーテル","経皮的冠動脈","ペースメーカ"],
+    "呼吸器科": ["呼吸器","気管支鏡","肺"],
+    "外科": ["外科手術","腹腔鏡","開腹"],
+    "整形外科": ["整形外科","骨折","人工関節","脊椎"],
+    "脳神経外科": ["脳神経外科","開頭","脳血管","脳卒中"],
+    "産婦人科": ["分娩","産科","婦人科","帝王切開"],
+    "小児科": ["小児","新生児","乳幼児"],
+    "眼科": ["眼科","白内障","網膜"],
+    "耳鼻咽喉科": ["耳鼻","咽喉"],
+    "泌尿器科": ["泌尿器","前立腺","腎臓"],
+    "精神科外来": ["精神科","精神疾患","認知症"],
+  },
+  "専門医療・その他": {
+    "リハビリテーション": ["リハビリテーション料","理学療法","作業療法","言語聴覚"],
+    "透析（人工腎臓）": ["人工腎臓","透析","腹膜灌流"],
+    "放射線治療": ["放射線治療","体外照射","粒子線"],
+    "外来化学療法": ["外来化学療法","抗悪性腫瘍剤"],
+    "在宅医療": ["在宅医療","往診","訪問診療","訪問看護"],
+    "感染対策": ["感染対策向上加算","感染防止対策","院内感染"],
+    "ICU・HCU": ["特定集中治療室","ICU","HCU","ハイケアユニット"],
+    "栄養サポートチーム": ["栄養サポートチーム","NST","栄養管理"],
+  },
+};
+
+// ─── 状態 ─────────────────────────────────────────────────
+let allDocs = [];
+let profileSelected = new Set();
+let profileFilterOn = false;
+let compareProfileFilterOn = false;
+let selectedDocIds = new Set();
+const TAB_NAMES = ['search','compare','docs','bookmarks','profile','config'];
+
+// ─── ユーティリティ ──────────────────────────────────────
+function toast(msg, ms = 2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.style.display = 'none', ms);
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function highlight(text, words, maxLen = 300) {
+  if (!words.length) return esc(text.slice(0, maxLen));
+  const re = new RegExp('(' + words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')', 'gi');
+  const idx = text.search(re);
+  const start = Math.max(0, idx - 80);
+  const snippet = text.slice(start, start + maxLen);
+  const highlighted = snippet.replace(re, '<mark>$1</mark>');
+  return (start > 0 ? '…' : '') + highlighted + (text.length > start + maxLen ? '…' : '');
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  const idx = TAB_NAMES.indexOf(name);
+  if (idx >= 0) document.querySelectorAll('.tab-btn')[idx]?.classList.add('active');
+  if (name === 'docs') loadDocs();
+  if (name === 'bookmarks') loadBookmarks();
+  if (name === 'profile') loadProfileForm();
+  window.scrollTo(0, 0);
+}
+
+// ─── 資料チップ ───────────────────────────────────────────
+function renderDocChips(docs) {
+  const wrap = document.getElementById('doc-chips');
+  wrap.innerHTML = docs.map(d => `
+    <div class="doc-chip ${selectedDocIds.has(String(d.id)) ? 'on' : ''}"
+         data-id="${d.id}" onclick="toggleDocChip(this)">
+      ${esc(d.year)}年 ${esc(d.label)}
+    </div>
+  `).join('');
+}
+function toggleDocChip(el) {
+  const id = el.dataset.id;
+  selectedDocIds.has(id) ? selectedDocIds.delete(id) : selectedDocIds.add(id);
+  el.classList.toggle('on');
+}
+
+// ─── 資料管理 ─────────────────────────────────────────────
+async function loadDocs() {
+  if (!sb) return;
+  const { data: docs } = await sb.from('documents').select('*').order('year', { ascending: false });
+  allDocs = docs || [];
+  renderDocChips(allDocs);
+  // 比較セレクト
+  ['doc-a','doc-b'].forEach((id, i) => {
+    const sel = document.getElementById(id);
+    const prev = sel.value;
+    sel.innerHTML = `<option value="">${i===0?'◀ 左の資料':'右の資料 ▶'}</option>`;
+    allDocs.forEach(d => {
+      const o = new Option(`[${d.year}] ${d.label}`, d.id);
+      if (prev === String(d.id)) o.selected = true;
+      sel.add(o);
+    });
+  });
+  const list = document.getElementById('doc-list');
+  if (!allDocs.length) {
+    list.innerHTML = '<div class="empty">取り込み済みの資料がありません。<br>自宅PCで <code>2_upload_pdf.py</code> を実行してください。</div>';
+    return;
+  }
+  list.innerHTML = allDocs.map(d => `
+    <div class="doc-item">
+      <div class="doc-info">
+        <div class="doc-name">${esc(d.label)}</div>
+        <div class="doc-meta">${esc(d.year)}年 ・ ${d.page_count}ページ</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="deleteDoc(${d.id},'${esc(d.label)}')">削除</button>
+    </div>
+  `).join('');
+}
+
+async function deleteDoc(id, name) {
+  if (!confirm(`「${name}」を削除しますか？`)) return;
+  await sb.from('pages').delete().eq('doc_id', id);
+  await sb.from('documents').delete().eq('id', id);
+  toast('削除しました');
+  loadDocs();
+}
+
+// ─── 自院フィルタ ─────────────────────────────────────────
+function getProfileKeywords() {
+  const kws = [];
+  for (const [, items] of Object.entries(PROFILE_MAP)) {
+    for (const [key, words] of Object.entries(items)) {
+      if (profileSelected.has(key)) kws.push(...words);
+    }
+  }
+  return [...new Set(kws)];
+}
+
+function updateToggleSubs() {
+  const n = profileSelected.size;
+  const msg = n > 0 ? `${n}項目で絞り込み` : '病院プロフィール未設定';
+  document.getElementById('profile-toggle-sub').textContent = msg;
+  document.getElementById('compare-toggle-sub').textContent = msg;
+}
+
+function toggleProfileFilter() {
+  if (profileSelected.size === 0) { toast('先に「病院設定」タブで施設条件を設定してください', 3000); return; }
+  profileFilterOn = !profileFilterOn;
+  document.getElementById('profile-toggle').classList.toggle('on', profileFilterOn);
+}
+function toggleCompareProfileFilter() {
+  if (profileSelected.size === 0) { toast('先に「病院設定」タブで施設条件を設定してください', 3000); return; }
+  compareProfileFilterOn = !compareProfileFilterOn;
+  document.getElementById('compare-profile-toggle').classList.toggle('on', compareProfileFilterOn);
+}
+
+// ─── 検索（Supabase ilike + AND） ───────────────────────────
+async function doSearch() {
+  if (!sb) { toast('接続設定タブで Supabase の設定をしてください', 3000); return; }
+  const q = document.getElementById('q').value.trim();
+  if (!q) { toast('キーワードを入力してください'); return; }
+
+  const spinner = document.getElementById('search-spinner');
+  const btnText = document.getElementById('search-btn-text');
+  spinner.style.display = 'inline-block';
+  btnText.textContent = '';
+
+  const words = q.split(/\s+/).filter(Boolean);
+  const docIds = [...selectedDocIds];
+
+  // pages テーブルに ILIKE AND 検索（pg_trgm でインデックス利用）
+  let query = sb.from('pages')
+    .select('id, doc_id, page_num, text, documents(label, year)')
+    .limit(50);
+
+  for (const w of words) query = query.ilike('text', `%${w}%`);
+  if (docIds.length) query = query.in('doc_id', docIds);
+
+  // 自院フィルタ：プロフィールキーワードのいずれかを含む（OR）
+  if (profileFilterOn) {
+    const kws = getProfileKeywords();
+    if (kws.length) {
+      // Supabase の or フィルタで実装
+      const orFilter = kws.map(k => `text.ilike.%${k}%`).join(',');
+      query = query.or(orFilter);
+    }
+  }
+
+  const { data, error } = await query;
+  spinner.style.display = 'none';
+  btnText.textContent = '検索';
+
+  if (error) { toast('検索エラー: ' + error.message, 4000); return; }
+
+  const el = document.getElementById('search-results');
+  if (!data || !data.length) {
+    el.innerHTML = '<div class="empty">該当する記載が見つかりませんでした</div>';
+    return;
+  }
+
+  el.innerHTML = `<div class="result-count">${data.length}件表示${profileFilterOn ? '（自院フィルタON）' : ''}</div>` +
+    data.map(r => `
+      <div class="result-item">
+        <div class="result-header">
+          <span class="badge badge-year">${esc(r.documents?.year ?? '')}</span>
+          <span class="badge badge-page">p.${r.page_num}</span>
+          <span class="result-label">${esc(r.documents?.label ?? '')}</span>
+        </div>
+        <div class="result-snippet">${highlight(r.text, words)}</div>
+        <div class="result-actions">
+          <button class="btn btn-outline btn-sm" onclick="addBookmark(${r.doc_id},${r.page_num})">🔖 ブックマーク</button>
+        </div>
+      </div>
+    `).join('');
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ─── 比較 ──────────────────────────────────────────────────
+async function doCompare() {
+  if (!sb) { toast('接続設定タブで Supabase の設定をしてください', 3000); return; }
+  const q = document.getElementById('cq').value.trim();
+  const da = document.getElementById('doc-a').value;
+  const db_ = document.getElementById('doc-b').value;
+  if (!q || !da || !db_) { toast('キーワードと2つの資料を選択してください'); return; }
+
+  const words = q.split(/\s+/).filter(Boolean);
+  const spinner = document.getElementById('compare-spinner');
+  spinner.style.display = 'inline-block';
+
+  async function fetchHits(docId) {
+    let query = sb.from('pages')
+      .select('page_num, text, documents(label, year)')
+      .eq('doc_id', docId).limit(20);
+    for (const w of words) query = query.ilike('text', `%${w}%`);
+    if (compareProfileFilterOn) {
+      const kws = getProfileKeywords();
+      if (kws.length) query = query.or(kws.map(k => `text.ilike.%${k}%`).join(','));
+    }
+    const { data } = await query;
+    return (data || []).map(r => ({
+      page_num: r.page_num,
+      snippet: highlight(r.text, words, 500),
+      label: r.documents?.label ?? '',
+      year: r.documents?.year ?? '',
+    }));
+  }
+
+  const [left, right] = await Promise.all([fetchHits(da), fetchHits(db_)]);
+  spinner.style.display = 'none';
+
+  const renderHits = hits => hits.length
+    ? hits.map(h => `<div class="compare-hit"><div class="pg">p.${h.page_num}</div>${h.snippet}</div>`).join('')
+    : '<div class="empty">該当なし</div>';
+
+  const la = allDocs.find(d => String(d.id) === String(da));
+  const lb = allDocs.find(d => String(d.id) === String(db_));
+
+  document.getElementById('compare-results').innerHTML = `
+    <div class="compare-col"><div class="compare-col-title">◀ ${la ? esc(la.label) : '左'}</div>${renderHits(left)}</div>
+    <div class="compare-col"><div class="compare-col-title">▶ ${lb ? esc(lb.label) : '右'}</div>${renderHits(right)}</div>
+  `;
+}
+
+// ─── ブックマーク ─────────────────────────────────────────
+async function addBookmark(docId, pageNum) {
+  if (!sb) return;
+  const note = prompt('メモ（任意）:', '');
+  if (note === null) return;
+  await sb.from('bookmarks').insert({ doc_id: docId, page_num: pageNum, note });
+  toast('ブックマークしました');
+}
+
+async function loadBookmarks() {
+  if (!sb) return;
+  const { data: bms } = await sb.from('bookmarks')
+    .select('*, documents(label, year)').order('created_at', { ascending: false });
+  const el = document.getElementById('bm-list');
+  if (!bms || !bms.length) {
+    el.innerHTML = '<div class="empty">ブックマークがありません。<br>検索結果から追加できます。</div>';
+    return;
+  }
+  el.innerHTML = bms.map(b => `
+    <div class="bm-item">
+      <div class="bm-header">
+        <div>
+          <span class="badge badge-year">${esc(b.documents?.year ?? '')}</span>
+          <span class="badge badge-page" style="margin-left:4px">p.${b.page_num}</span>
+          <strong style="margin-left:6px;font-size:13px">${esc(b.documents?.label ?? '')}</strong>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="deleteBm(${b.id})">削除</button>
+      </div>
+      ${b.note ? `<div style="margin-top:6px;font-size:13px;color:#555">📝 ${esc(b.note)}</div>` : ''}
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${b.created_at?.slice(0,16).replace('T',' ') ?? ''}</div>
+    </div>
+  `).join('');
+}
+
+async function deleteBm(id) {
+  await sb.from('bookmarks').delete().eq('id', id);
+  toast('削除しました');
+  loadBookmarks();
+}
+
+// ─── 病院プロフィール ─────────────────────────────────────
+async function loadProfileData() {
+  if (!sb) return;
+  const { data } = await sb.from('settings').select('value').eq('key', 'profile').single();
+  if (data?.value) {
+    try { profileSelected = new Set(JSON.parse(data.value)); } catch {}
+  }
+  updateProfileBadge();
+  updateToggleSubs();
+}
+
+function updateProfileBadge() {
+  const n = profileSelected.size;
+  document.getElementById('profile-count-header').textContent = n > 0 ? `${n}項目設定済` : '未設定';
+  document.getElementById('profile-badge-btn').classList.toggle('active', n > 0);
+}
+
+function loadProfileForm() {
+  const form = document.getElementById('profile-form');
+  form.innerHTML = Object.entries(PROFILE_MAP).map(([section, items]) => `
+    <div class="profile-section">
+      <div class="profile-section-title">${esc(section)}</div>
+      <div class="chip-grid">
+        ${Object.keys(items).map(key => `
+          <div class="chip ${profileSelected.has(key)?'on':''}" data-key="${esc(key)}" onclick="toggleChip(this)">${esc(key)}</div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+  updateProfileSummary();
+}
+
+function toggleChip(el) {
+  const key = el.dataset.key;
+  profileSelected.has(key) ? profileSelected.delete(key) : profileSelected.add(key);
+  el.classList.toggle('on');
+  updateProfileSummary();
+}
+function updateProfileSummary() {
+  const n = profileSelected.size;
+  document.getElementById('profile-summary').textContent = n > 0 ? `${n}項目 選択中` : '項目を選択してください';
+}
+
+async function saveProfile() {
+  if (!sb) { toast('接続設定が必要です', 3000); return; }
+  await sb.from('settings').upsert({ key: 'profile', value: JSON.stringify([...profileSelected]) });
+  toast(`保存しました（${profileSelected.size}項目）`);
+  updateProfileBadge();
+  updateToggleSubs();
+}
+function clearProfile() {
+  profileSelected.clear();
+  document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on'));
+  updateProfileSummary();
+}
+
+// ─── 初期化 ───────────────────────────────────────────────
+async function init() {
+  const docs = await sb?.from('documents').select('*').order('year', { ascending: false });
+  allDocs = docs?.data || [];
+  renderDocChips(allDocs);
+  ['doc-a','doc-b'].forEach((id, i) => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = `<option value="">${i===0?'◀ 左の資料':'右の資料 ▶'}</option>`;
+    allDocs.forEach(d => sel.add(new Option(`[${d.year}] ${d.label}`, d.id)));
+  });
+  await loadProfileData();
+}
+
+// ─── 起動 ────────────────────────────────────────────────
+const connected = loadConfig();
+if (!connected) {
+  document.getElementById('config-banner').style.display = 'block';
+} else {
+  init();
+}
+</script>
+</body>
+</html>
