@@ -430,6 +430,7 @@ function switchTab(name) {
 // ─── 資料チップ ───────────────────────────────────────────
 function renderDocChips(docs) {
   const wrap = document.getElementById('doc-chips');
+  if (!wrap) return;
   wrap.innerHTML = docs.map(d => `
     <div class="doc-chip ${selectedDocIds.has(String(d.id)) ? 'on' : ''}"
          data-id="${d.id}" onclick="toggleDocChip(this)">
