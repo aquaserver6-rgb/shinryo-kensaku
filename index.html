@@ -831,12 +831,14 @@ function similarity(a, b) {
   return union === 0 ? 0 : inter / union;
 }
 
-// 類似度が最も高いペアを貪欲法でマッチング
+// 類似度が最も高いペアを貪欲法でマッチング（スコア付き）
+const DIFF_THRESHOLD = 0.25; // これ以上の類似度のペアのみ差分表示
+
 function matchPairs(left, right) {
   if (!left.length || !right.length) {
     return [
-      ...left.map(l => ({ l, r: null })),
-      ...right.map(r => ({ l: null, r })),
+      ...left.map(l => ({ l, r: null, score: 0 })),
+      ...right.map(r => ({ l: null, r, score: 0 })),
     ];
   }
 
@@ -851,16 +853,15 @@ function matchPairs(left, right) {
       if (s > bestScore) { bestScore = s; bestIdx = i; }
     }
     if (bestIdx >= 0 && bestScore > 0.05) {
-      pairs.push({ l, r: right[bestIdx] });
+      pairs.push({ l, r: right[bestIdx], score: bestScore });
       usedR.add(bestIdx);
     } else {
-      pairs.push({ l, r: null });
+      pairs.push({ l, r: null, score: 0 });
     }
   }
 
-  // 右側で未マッチのものを末尾に追加
   right.forEach((r, i) => {
-    if (!usedR.has(i)) pairs.push({ l: null, r });
+    if (!usedR.has(i)) pairs.push({ l: null, r, score: 0 });
   });
 
   return pairs;
@@ -874,20 +875,24 @@ function renderCompareResults(left, right, labels, useDiff) {
     return;
   }
 
-  // 類似度ベースでペアリング
   const pairs = matchPairs(left, right);
 
-  // 差分HTMLを計算
-  const rows = pairs.map(({ l, r }) => {
+  const rows = pairs.map(({ l, r, score }) => {
     let lHtml = l ? l.snippet : '';
     let rHtml = r ? r.snippet : '';
-    if (useDiff && l && r) {
+    // 類似度が閾値以上のペアのみ差分表示（低いペアは別内容なので差分不要）
+    const applyDiff = useDiff && l && r && score >= DIFF_THRESHOLD;
+    if (applyDiff) {
       const d = renderDiff(l.rawText, r.rawText);
       lHtml = d.oldHtml;
       rHtml = d.newHtml;
     }
+    const scoreLabel = (l && r)
+      ? `<span style="font-size:10px;color:${score >= DIFF_THRESHOLD ? 'var(--green)' : 'var(--muted)'}">
+           類似度 ${Math.round(score * 100)}%${score < DIFF_THRESHOLD ? '（差分表示には低め）' : ''}</span>`
+      : '';
     const lCell = l
-      ? `<div class="compare-hit"><div class="pg">p.${l.page_num}</div>${lHtml}</div>`
+      ? `<div class="compare-hit"><div class="pg">p.${l.page_num} ${scoreLabel}</div>${lHtml}</div>`
       : `<div class="compare-hit empty-side">（該当なし）</div>`;
     const rCell = r
       ? `<div class="compare-hit"><div class="pg">p.${r.page_num}</div>${rHtml}</div>`
