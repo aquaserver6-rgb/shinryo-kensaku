@@ -120,6 +120,10 @@ input:focus, select:focus { border-color:var(--primary); box-shadow:0 0 0 3px va
 .result-label { font-weight:bold; font-size:13px; width:100%; }
 .result-snippet { font-size:13px; line-height:1.9; color:#444; white-space:pre-wrap; word-break:break-all; }
 mark { background:var(--mark); border-radius:3px; padding:0 2px; }
+mark.diff-del { background:#fde8e8; color:#c0392b; text-decoration:line-through; border-radius:3px; padding:0 2px; }
+mark.diff-ins { background:#e8fde8; color:#1e8449; border-radius:3px; padding:0 2px; }
+.diff-legend { display:flex; gap:12px; font-size:11px; margin-top:8px; }
+.diff-legend span { display:flex; align-items:center; gap:4px; }
 .result-actions { margin-top:10px; }
 
 .compare-col { background:var(--card); border-radius:var(--r); box-shadow:var(--shadow); padding:12px 14px; margin-bottom:10px; }
@@ -206,6 +210,19 @@ mark { background:var(--mark); border-radius:3px; padding:0 2px; }
       <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="doCompare()">
         <span class="spinner" id="compare-spinner"></span><span>比較する</span>
       </button>
+      <div id="diff-controls" style="display:none;margin-top:10px">
+        <div class="filter-toggle" id="diff-toggle" onclick="toggleDiffMode()">
+          <div class="toggle-sw"></div>
+          <div>
+            <div class="filter-label">差分を強調表示</div>
+            <div class="filter-sub">追加・削除された部分を色分け</div>
+          </div>
+        </div>
+        <div class="diff-legend">
+          <span><mark class="diff-del">削除・変更</mark>左のみに存在</span>
+          <span><mark class="diff-ins">追加・変更</mark>右のみに存在</span>
+        </div>
+      </div>
     </div>
     <div id="compare-results" class="compare-grid"></div>
   </div>
@@ -541,20 +558,32 @@ async function doSearch() {
   }
 
   el.innerHTML = `<div class="result-count">${data.length}件表示${profileFilterOn ? '（自院フィルタON）' : ''}</div>` +
-    data.map(r => `
+    data.map((r, idx) => `
       <div class="result-item">
         <div class="result-header">
           <span class="badge badge-year">${esc(r.documents?.year ?? '')}</span>
           <span class="badge badge-page">p.${r.page_num}</span>
           <span class="result-label">${esc(r.documents?.label ?? '')}</span>
         </div>
-        <div class="result-snippet">${highlight(r.text, words)}</div>
+        <div class="result-snippet" id="snippet-${idx}">${highlight(r.text, words)}</div>
+        <div class="result-full" id="full-${idx}" style="display:none;font-size:13px;line-height:1.9;color:#444;white-space:pre-wrap;word-break:break-all">${highlight(r.text, words, 99999)}</div>
         <div class="result-actions">
+          <button class="btn btn-outline btn-sm" onclick="toggleFullText(${idx}, this)">📖 全文を見る</button>
           <button class="btn btn-outline btn-sm" onclick="addBookmark(${r.doc_id},${r.page_num})">🔖 ブックマーク</button>
         </div>
       </div>
     `).join('');
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ─── 全文展開 ─────────────────────────────────────────────
+function toggleFullText(idx, btn) {
+  const snippet = document.getElementById('snippet-' + idx);
+  const full    = document.getElementById('full-' + idx);
+  const isOpen  = full.style.display !== 'none';
+  snippet.style.display = isOpen ? '' : 'none';
+  full.style.display    = isOpen ? 'none' : '';
+  btn.textContent = isOpen ? '📖 全文を見る' : '📕 折りたたむ';
 }
 
 // ─── 比較 ──────────────────────────────────────────────────
@@ -581,6 +610,7 @@ async function doCompare() {
     const { data } = await query;
     return (data || []).map(r => ({
       page_num: r.page_num,
+      rawText: r.text,
       snippet: highlight(r.text, words, 500),
       label: r.documents?.label ?? '',
       year: r.documents?.year ?? '',
@@ -590,17 +620,24 @@ async function doCompare() {
   const [left, right] = await Promise.all([fetchHits(da), fetchHits(db_)]);
   spinner.style.display = 'none';
 
-  const renderHits = hits => hits.length
-    ? hits.map(h => `<div class="compare-hit"><div class="pg">p.${h.page_num}</div>${h.snippet}</div>`).join('')
-    : '<div class="empty">該当なし</div>';
+  // rawText を保持して差分計算に使う
+  const toItems = hits => hits.map(h => ({
+    page_num: h.page_num,
+    rawText: h.rawText,
+    snippet: h.snippet,
+  }));
 
+  lastCompareLeft   = toItems(left);
+  lastCompareRight  = toItems(right);
   const la = allDocs.find(d => String(d.id) === String(da));
   const lb = allDocs.find(d => String(d.id) === String(db_));
+  lastCompareLabels = [la ? la.label : '左', lb ? lb.label : '右'];
 
-  document.getElementById('compare-results').innerHTML = `
-    <div class="compare-col"><div class="compare-col-title">◀ ${la ? esc(la.label) : '左'}</div>${renderHits(left)}</div>
-    <div class="compare-col"><div class="compare-col-title">▶ ${lb ? esc(lb.label) : '右'}</div>${renderHits(right)}</div>
-  `;
+  renderCompareResults(lastCompareLeft, lastCompareRight, lastCompareLabels, diffModeOn);
+
+  // 差分コントロールを表示
+  document.getElementById('diff-controls').style.display =
+    (left.length && right.length) ? 'block' : 'none';
 }
 
 // ─── ブックマーク ─────────────────────────────────────────
@@ -697,6 +734,75 @@ function clearProfile() {
   profileSelected.clear();
   document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on'));
   updateProfileSummary();
+}
+
+// ─── 差分アルゴリズム ─────────────────────────────────────
+let lastCompareLeft = [];
+let lastCompareRight = [];
+let lastCompareLabels = ['', ''];
+let diffModeOn = false;
+
+function splitChunks(text) {
+  return text.replace(/([。！？])/g, '$1\n').split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+function lcsDiff(a, b) {
+  const MAX = 80;
+  const oa = a.slice(0, MAX), ob = b.slice(0, MAX);
+  const m = oa.length, n = ob.length;
+  const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = oa[i-1] === ob[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+  const ops = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oa[i-1] === ob[j-1]) { ops.unshift({t:'=', v:oa[i-1]}); i--; j--; }
+    else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) { ops.unshift({t:'+', v:ob[j-1]}); j--; }
+    else { ops.unshift({t:'-', v:oa[i-1]}); i--; }
+  }
+  return ops;
+}
+
+function renderDiff(oldText, newText) {
+  const oc = splitChunks(oldText);
+  const nc = splitChunks(newText);
+  const ops = lcsDiff(oc, nc);
+  let oldHtml = '', newHtml = '';
+  for (const op of ops) {
+    const t = esc(op.v);
+    if (op.t === '=')      { oldHtml += t; newHtml += t; }
+    else if (op.t === '-') { oldHtml += `<mark class="diff-del">${t}</mark>`; }
+    else                   { newHtml += `<mark class="diff-ins">${t}</mark>`; }
+  }
+  return { oldHtml, newHtml };
+}
+
+function renderCompareResults(left, right, labels, useDiff) {
+  const la = labels[0], lb = labels[1];
+  const renderHits = (hits, htmlArr) => hits.length
+    ? hits.map((h, i) => `<div class="compare-hit"><div class="pg">p.${h.page_num}</div>${htmlArr ? htmlArr[i] : h.snippet}</div>`).join('')
+    : '<div class="empty">該当なし</div>';
+
+  let leftHtmlArr = null, rightHtmlArr = null;
+  if (useDiff && left.length && right.length) {
+    const pairs = Math.min(left.length, right.length);
+    leftHtmlArr  = left.map((h, i)  => i < pairs ? renderDiff(h.rawText, right[i].rawText).oldHtml : esc(h.rawText));
+    rightHtmlArr = right.map((h, i) => i < pairs ? renderDiff(left[i].rawText, h.rawText).newHtml : esc(h.rawText));
+  }
+
+  document.getElementById('compare-results').innerHTML = `
+    <div class="compare-col"><div class="compare-col-title">◀ ${esc(la)}</div>${renderHits(left, leftHtmlArr)}</div>
+    <div class="compare-col"><div class="compare-col-title">▶ ${esc(lb)}</div>${renderHits(right, rightHtmlArr)}</div>
+  `;
+}
+
+function toggleDiffMode() {
+  diffModeOn = !diffModeOn;
+  document.getElementById('diff-toggle').classList.toggle('on', diffModeOn);
+  if (lastCompareLeft.length || lastCompareRight.length) {
+    renderCompareResults(lastCompareLeft, lastCompareRight, lastCompareLabels, diffModeOn);
+  }
 }
 
 // ─── 初期化 ───────────────────────────────────────────────
